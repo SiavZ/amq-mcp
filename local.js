@@ -31,11 +31,34 @@ function clientYaranSession(session) {
   } catch { return ""; }
 }
 
+// shortcut: the Claude process jcode runs as a lane's provider carries no lane identity, so the lane is found
+// as the one jcode client working in the same directory; drop this when jcode passes the lane's handle down.
+function providerYaranSession() {
+  try {
+    const here = process.cwd(), pids = [];
+    let pid;
+    for (const line of execFileSync("/usr/sbin/lsof", ["-a", "-c", "jcode", "-d", "cwd", "-Fpn"], { encoding: "utf8" }).split("\n")) {
+      if (line[0] === "p") pid = line.slice(1);
+      else if (line[0] === "n" && line.slice(1) === here) pids.push(pid);
+    }
+    const sessions = new Set();
+    for (const id of pids) {
+      const command = execFileSync("/bin/ps", ["eww", "-o", "command=", "-p", id], { encoding: "utf8", maxBuffer: 1 << 22 });
+      const session = command.includes("jcode --resume ") && command.match(/ YARAN_SESSION_ID=(\S+)/)?.[1];
+      if (session) sessions.add(session);
+    }
+    return sessions.size === 1 ? [...sessions][0] : "";
+  } catch { return ""; }
+}
+
 export async function localHandle(harness, env, root) {
   // jcode also starts the adapter registered for claude, so the session decides, not the argument.
-  if (env.JCODE_MCP_CHANNEL_SESSION) {
+  // The provider process inherits the jcode daemon's Yaran session, which names no lane.
+  const provider = harness === "claude" && env.JCODE_RUNTIME_PROVIDER && !env.AM_ME && !env.JCODE_MCP_CHANNEL_SESSION;
+  if (env.JCODE_MCP_CHANNEL_SESSION || provider) {
     // The shared jcode daemon forwards this client's Yaran session, not AM_ME.
-    const yaranSession = env.YARAN_SESSION_ID || clientYaranSession(env.JCODE_MCP_CHANNEL_SESSION);
+    const yaranSession = provider ? providerYaranSession()
+      : env.YARAN_SESSION_ID || clientYaranSession(env.JCODE_MCP_CHANNEL_SESSION);
     if (yaranSession) {
       const matches = [];
       for (const entry of await readdir(join(root, "agents"), { withFileTypes: true })) {
@@ -57,11 +80,9 @@ export async function localHandle(harness, env, root) {
       if (handles.length !== 1) throw new Error("Cannot resolve a unique AMQ owner for this jcode session.");
       return validHandle(handles[0]);
     }
+    if (provider) throw new Error("This Claude process is jcode's provider and no single lane works in its directory.");
     return validHandle(env.AMQ_MCP_JCODE_HANDLE || "jcode");
   }
-  // The Claude process jcode runs as its provider carries no lane identity: jcode's own adapter serves the lane.
-  if (harness === "claude" && env.JCODE_RUNTIME_PROVIDER && !env.AM_ME)
-    throw new Error("This Claude process is jcode's provider; use the lane's own AMQ adapter.");
   return validHandle(env.AM_ME || harness);
 }
 
