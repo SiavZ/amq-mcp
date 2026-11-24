@@ -23,6 +23,7 @@ test("local adapters bind shared jcode sessions to their registered owner", asyn
   assert.equal(await localHandle("claude", { AM_ME: "current-agent" }, root), "current-agent");
   assert.equal(await localHandle("claude", env, root), "current-agent");
   assert.equal(await localHandle("codex", {}, root), "codex");
+  await assert.rejects(localHandle("claude", { JCODE_RUNTIME_PROVIDER: "claude" }, root), /jcode's provider/);
   for (const handle of [undefined, "", "../other", "UPPER", "x".repeat(65)]) assert.throws(() => validHandle(handle));
 });
 

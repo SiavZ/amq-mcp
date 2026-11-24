@@ -48,6 +48,9 @@ export async function localHandle(harness, env, root) {
     }
     return validHandle(env.AMQ_MCP_JCODE_HANDLE || "jcode");
   }
+  // The Claude process jcode runs as its provider carries no lane identity: jcode's own adapter serves the lane.
+  if (harness === "claude" && env.JCODE_RUNTIME_PROVIDER && !env.AM_ME)
+    throw new Error("This Claude process is jcode's provider; use the lane's own AMQ adapter.");
   return validHandle(env.AM_ME || harness);
 }
 
