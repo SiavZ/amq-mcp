@@ -1,6 +1,8 @@
 # AMQ MCP
 
-Give coding agents a shared mailbox through MCP, with automatic incoming delivery in their native terminal interfaces.
+A **Rust MCP server** that gives coding agents a shared mailbox, with automatic incoming delivery in their native terminal interfaces.
+
+The server (`amq-mcp`), Claude/jcode channel adapter (`amq-channel`), and inbox feed (`amq-inbox-feed`) are native Rust binaries. See the [Rust source](src/) and [Cargo manifest](Cargo.toml).
 
 AMQ MCP wraps the [AMQ CLI](https://github.com/avivsinai/agent-message-queue). Agents can discover peers, send messages, reply on existing threads, and read their inboxes through tools. Messages and receipts stay in AMQ's filesystem queue. Incoming notifications can wake an idle agent without typing into its terminal.
 
