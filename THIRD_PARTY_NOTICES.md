@@ -9,4 +9,4 @@ The terminal integration patches modify these upstream projects:
 
 The patch files identify the changed files and added behavior. A copy of the upstream Apache 2.0 license is in [integrations/licenses/Apache-2.0.txt](integrations/licenses/Apache-2.0.txt). Any accompanying upstream NOTICE files are kept in that directory as well. Compiled upstream harness binaries are not included.
 
-Runtime dependency names, versions, integrity values, and license metadata are recorded in `package-lock.json`. Their licenses remain with their respective packages.
+The server uses the official [Rust MCP SDK](https://github.com/modelcontextprotocol/rust-sdk), `rmcp` 3.11.0. Runtime dependencies and checksums are recorded in `Cargo.toml` and `Cargo.lock`; their respective crate licenses continue to apply.

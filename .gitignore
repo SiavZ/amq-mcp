@@ -1,4 +1,6 @@
 node_modules/
+target/
+.codebase-memory/
 .agent-mail/
 .state.md
 

@@ -4,13 +4,17 @@ Results recorded on 2026-11-24. These describe the tested versions, not a promis
 
 ## Automated checks
 
-`npm test` passes 11 Node tests using temporary AMQ queues and real MCP processes. Coverage includes stateless HTTP requests across service instances, caller isolation, literal bodies, threads, receipts, subscriptions that do not consume mail, reconnects, modern and legacy stdio, native channel adaptation, offline feed startup, a pending-scan notification race, and local launch helpers.
+The Rust migration passes `cargo test --all-targets`: 14 unit tests and eight integration tests using temporary AMQ queues and real MCP processes. Coverage includes stateless HTTP requests across service instances, caller isolation, literal bodies, threads, receipts, subscriptions that do not consume mail, reconnects, modern and legacy stdio, native channel adaptation, offline feed startup, and local launch helpers. Watcher tests cover macOS symlinked roots, per-mailbox event isolation, startup failures, and an initial invalidation that closes the acknowledgment/replay race.
 
-The pinned native terminal patches passed three Codex Rust tests and 20 Gemini tests. Both source builds passed, along with Codex formatting, targeted Gemini lint, and patch applicability checks. Native build checkouts were removed after validation; these source tests are separate from `npm test`.
+`cargo clippy --all-targets -- -D warnings`, `cargo fmt --all -- --check`, and optimized builds of all three native binaries pass. No JavaScript runtime, npm package, or Node dependency tree remains in the server checkout.
+
+Independent TypeScript SDK v2 clients completed modern HTTP calls and legacy channel notification/read/reply checks against the Rust SDK v3 service. This check ran before removing the old development dependency tree. It confirms client interoperability beyond tests that use the Rust SDK on both sides.
+
+The pinned native terminal patches previously passed three Codex Rust tests and 20 Gemini tests. Both source builds passed, along with Codex formatting, targeted Gemini lint, and patch applicability checks. The terminal patches are unchanged by the runtime migration. Their build checkouts were removed after validation and were not rebuilt during this port.
 
 ## Authenticated native terminal tests
 
-Each test used isolated identities and fresh bearer credentials. Agents announced readiness, ended their turn, and remained idle without polling or calling `wait_for_messages`. A controller then sent a message through modern HTTP MCP. A passing round trip required a real `read_message` call, a matching AMQ drained receipt, and an exact nonce reply received on the original thread. Incoming notices were not typed into terminal input.
+These model-driven tests were run before the Rust migration. Each used isolated identities and fresh bearer credentials. Agents announced readiness, ended their turn, and remained idle without polling or calling `wait_for_messages`. A controller then sent a message through modern HTTP MCP. A passing round trip required a real `read_message` call, a matching AMQ drained receipt, and an exact nonce reply received on the original thread. Incoming notices were not typed into terminal input.
 
 | Terminal | Result |
 | --- | --- |
@@ -23,6 +27,6 @@ Codex's second message arrived while an unsent draft remained in its composer. I
 
 Live testing found a missing Codex tool-host companion in a relocated build. Keeping the matching `codex-code-mode-host` and `codex-exec-server` beside the patched executable fixed startup, and the subsequent round trips passed.
 
-The installed Claude, Codex, and jcode MCP entries were also checked independently. Each connected, exposed nine tools, and reported the intended mailbox identity. jcode's own `mcp test amq` connected and disconnected cleanly.
+After the migration, the installed Claude, Codex, and jcode MCP entries were checked independently against the Rust service. Each connected, exposed nine tools, and reported the intended mailbox identity using AMQ 0.76.0. jcode's own `mcp test amq` connected and disconnected cleanly with server version 0.2.0. Fresh model-driven turns were not rerun during the port.
 
-Temporary test sessions, mailbox roots, and copied authentication material were removed after testing. Credentials and machine-specific reports are excluded from the public repository and package contents.
+Temporary test sessions, mailbox roots, and copied authentication material were removed after testing. Credentials and machine-specific reports are excluded from the public repository.
