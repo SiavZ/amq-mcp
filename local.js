@@ -22,7 +22,8 @@ export function validHandle(handle) {
 }
 
 export async function localHandle(harness, env, root) {
-  if (harness === "jcode" && env.JCODE_MCP_CHANNEL_SESSION) {
+  // jcode also starts the adapter registered for claude, so the session decides, not the argument.
+  if (env.JCODE_MCP_CHANNEL_SESSION) {
     // The shared jcode daemon forwards this client's Yaran session, not AM_ME.
     if (env.YARAN_SESSION_ID) {
       const matches = [];

@@ -21,6 +21,7 @@ test("local adapters bind shared jcode sessions to their registered owner", asyn
   assert.equal(await localHandle("jcode", { ...env, YARAN_SESSION_ID: "", AMQ_MCP_JCODE_HANDLE: "standalone" }, root), "standalone");
   assert.equal(await localHandle("jcode", { JCODE_MCP_CHANNEL_SESSION: "native" }, root), "jcode");
   assert.equal(await localHandle("claude", { AM_ME: "current-agent" }, root), "current-agent");
+  assert.equal(await localHandle("claude", env, root), "current-agent");
   assert.equal(await localHandle("codex", {}, root), "codex");
   for (const handle of [undefined, "", "../other", "UPPER", "x".repeat(65)]) assert.throws(() => validHandle(handle));
 });

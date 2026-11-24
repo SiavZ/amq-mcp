@@ -115,6 +115,7 @@ test("stateless 2026 HTTP delivers across instances, preserves literal bodies, t
     charlie.readResource({ uri: "amq://inbox/bob" }),
     /not found/i,
   );
+  await assert.rejects(call(alice, "send_message", { to: ["8vadtvbs"], body: "x" }), /No AMQ mailbox/);
   const peek = await call(bob, "check_messages", { peek: true });
   assert.equal(peek[0].id, sent.id);
   const history = await call(bob, "get_thread", { id: sent.thread });

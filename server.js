@@ -2,7 +2,8 @@
 import { parseArgs } from "node:util";
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { watch } from "node:fs";
+import { watch, existsSync } from "node:fs";
+import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
@@ -146,6 +147,13 @@ export function buildServer(amq) {
     async ({ to, body, ...args }, { signal }) => {
       if (to.length > 1 && !args.thread)
         throw new Error("A thread is required for multiple recipients.");
+      // amq send creates a mailbox for any name, so a wrong address would be stored and never read.
+      if (!args.project && !args.session)
+        for (const handle of to)
+          if (!existsSync(join(amq.identity.root, "agents", handle, "inbox")))
+            throw new Error(
+              `No AMQ mailbox for "${handle}". Take a handle from list_peers; a claude-peers id is not an AMQ handle.`,
+            );
       return amq.run(
         [
           "send",
