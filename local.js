@@ -21,11 +21,22 @@ export function validHandle(handle) {
   return handle;
 }
 
+// shortcut: a reconnect made from jcode's debug socket carries no Yaran session, so it is read from the
+// lane's jcode client process; drop this when jcode forwards YARAN_SESSION_ID on every adapter start.
+function clientYaranSession(session) {
+  try {
+    const processes = execFileSync("/bin/ps", ["eww", "-axo", "command="], { encoding: "utf8", maxBuffer: 1 << 26 });
+    const client = processes.split("\n").find((line) => line.includes(`jcode --resume ${session} `));
+    return client?.match(/ YARAN_SESSION_ID=(\S+)/)?.[1] || "";
+  } catch { return ""; }
+}
+
 export async function localHandle(harness, env, root) {
   // jcode also starts the adapter registered for claude, so the session decides, not the argument.
   if (env.JCODE_MCP_CHANNEL_SESSION) {
     // The shared jcode daemon forwards this client's Yaran session, not AM_ME.
-    if (env.YARAN_SESSION_ID) {
+    const yaranSession = env.YARAN_SESSION_ID || clientYaranSession(env.JCODE_MCP_CHANNEL_SESSION);
+    if (yaranSession) {
       const matches = [];
       for (const entry of await readdir(join(root, "agents"), { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
@@ -39,7 +50,7 @@ export async function localHandle(harness, env, root) {
             if (error.code === "ENOENT" || error instanceof SyntaxError) continue;
             throw error;
           }
-          if (owner.session_id === env.YARAN_SESSION_ID) matches.push(entry.name);
+          if (owner.session_id === yaranSession) matches.push(entry.name);
         }
       }
       const handles = [...new Set(matches)];
