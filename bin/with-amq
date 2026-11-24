@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -eq 0 ]; then
+  printf '%s\n' 'Usage: with-amq COMMAND [ARGUMENTS...]' >&2
+  exit 2
+fi
+
+amq_package_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+: "${AM_ME:?Set AM_ME to a unique handle for this terminal}"
+export AM_ME
+export AMQ_MCP_URL="${AMQ_MCP_URL:-http://127.0.0.1:8765/mcp}"
+export AMQ_MCP_TOKENS="${AMQ_MCP_TOKENS:-$HOME/.local/state/amq-mcp/tokens.json}"
+AMQ_MCP_TOKEN=$(node --input-type=module - "$amq_package_dir/inbox-client.js" <<'JS'
+import { pathToFileURL } from 'node:url';
+const { tokenFromEnv } = await import(pathToFileURL(process.argv[2]));
+process.stdout.write(await tokenFromEnv());
+JS
+)
+export AMQ_MCP_TOKEN
+export AMQ_MCP_FEED="${AMQ_MCP_FEED:-$amq_package_dir/feed.js}"
+exec "$@"

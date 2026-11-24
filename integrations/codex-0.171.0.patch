@@ -1,0 +1,256 @@
+diff --git a/codex-rs/tui/src/amq.rs b/codex-rs/tui/src/amq.rs
+new file mode 100644
+index 0000000..8228329
+--- /dev/null
++++ b/codex-rs/tui/src/amq.rs
+@@ -0,0 +1,103 @@
++//! Optional AMQ delivery over a private pipe, independent of terminal input.
++
++use std::process::Stdio;
++
++use serde::Deserialize;
++use tokio::io::AsyncBufReadExt;
++use tokio::io::BufReader;
++use tokio::process::Command;
++
++use crate::app_event::AppEvent;
++use crate::app_event_sender::AppEventSender;
++
++#[derive(Deserialize)]
++#[serde(deny_unknown_fields)]
++struct Frame {
++    #[serde(rename = "type")]
++    kind: String,
++    content: String,
++}
++
++fn parse_message(line: &str) -> Option<String> {
++    if line.len() > 256 * 1024 {
++        return None;
++    }
++    let frame: Frame = serde_json::from_str(line).ok()?;
++    (frame.kind == "amq_message" && !frame.content.trim().is_empty()).then_some(frame.content)
++}
++
++pub(crate) fn start(tx: AppEventSender) {
++    let Some(command) = std::env::var_os("AMQ_MCP_FEED") else {
++        return;
++    };
++    tokio::spawn(async move {
++        let mut child = match Command::new(command)
++            .stdin(Stdio::null())
++            .stdout(Stdio::piped())
++            .stderr(Stdio::null())
++            .kill_on_drop(true)
++            .spawn()
++        {
++            Ok(child) => child,
++            Err(error) => {
++                tracing::warn!("AMQ feed failed to start: {error}");
++                tx.send(AppEvent::InsertHistoryCell(Box::new(
++                    crate::history_cell::new_warning_event(format!(
++                        "AMQ feed failed to start: {error}"
++                    )),
++                )));
++                return;
++            }
++        };
++        let Some(stdout) = child.stdout.take() else {
++            return;
++        };
++        let mut lines = BufReader::new(stdout).lines();
++        loop {
++            tokio::select! {
++                _ = tx.app_event_tx.closed() => break,
++                line = lines.next_line() => match line {
++                    Ok(Some(line)) => {
++                        if let Some(text) = parse_message(&line) {
++                            tx.send(AppEvent::AmqMessage(text));
++                        }
++                    }
++                    Ok(None) => {
++                        tracing::warn!("AMQ feed closed; unread mail remains in AMQ");
++                        tx.send(AppEvent::InsertHistoryCell(Box::new(crate::history_cell::new_warning_event(
++                            "AMQ feed stopped. Messages remain unread in AMQ.".to_string(),
++                        ))));
++                        break;
++                    }
++                    Err(error) => {
++                        tracing::warn!("AMQ feed read failed: {error}");
++                        break;
++                    }
++                }
++            }
++        }
++        let _ = child.kill().await;
++    });
++}
++
++#[cfg(test)]
++mod tests {
++    use super::parse_message;
++
++    #[test]
++    fn accepts_only_bounded_amq_frames() {
++        assert_eq!(
++            parse_message(r#"{"type":"amq_message","content":"Read message 1"}"#),
++            Some("Read message 1".to_string())
++        );
++        for invalid in [
++            "not json",
++            r#"{"type":"other","content":"hello"}"#,
++            r#"{"type":"amq_message","content":" "}"#,
++            r#"{"type":"amq_message","content":12}"#,
++        ] {
++            assert_eq!(parse_message(invalid), None);
++        }
++        assert_eq!(parse_message(&"a".repeat(256 * 1024 + 1)), None);
++    }
++}
+diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
+index d63fffd..fd242ed 100644
+--- a/codex-rs/tui/src/app/event_dispatch.rs
++++ b/codex-rs/tui/src/app/event_dispatch.rs
+@@ -3915,6 +3915,9 @@ impl App {
+                 self.chat_widget
+                     .submit_user_message_with_mode(text, collaboration_mode);
+             }
++            AppEvent::AmqMessage(text) => {
++                self.chat_widget.queue_peer_message(text);
++            }
+             AppEvent::ManageSkillsClosed => {
+                 self.chat_widget.handle_manage_skills_closed();
+             }
+diff --git a/codex-rs/tui/src/app/startup.rs b/codex-rs/tui/src/app/startup.rs
+index a5664d2..10d7ab2 100644
+--- a/codex-rs/tui/src/app/startup.rs
++++ b/codex-rs/tui/src/app/startup.rs
+@@ -344,6 +344,7 @@ impl App {
+         }
+         let (app_event_tx, mut app_event_rx) = unbounded_channel();
+         let app_event_tx = AppEventSender::new(app_event_tx);
++        crate::amq::start(app_event_tx.clone());
+         if let Some(message) = project_config_warning(&config) {
+             app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
+                 history_cell::StartupWarningsCell::new(vec![message]),
+diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
+index 24592bf..455b178 100644
+--- a/codex-rs/tui/src/app_event.rs
++++ b/codex-rs/tui/src/app_event.rs
+@@ -1855,6 +1855,9 @@ pub(crate) enum AppEvent {
+         collaboration_mode: CollaborationModeMask,
+     },
+ 
++    /// Peer notification received over the opt-in AMQ pipe.
++    AmqMessage(String),
++
+     /// Open the approval popup.
+     FullScreenApprovalRequest(ApprovalRequest),
+ 
+diff --git a/codex-rs/tui/src/chatwidget/input_flow.rs b/codex-rs/tui/src/chatwidget/input_flow.rs
+index 7762f98..60fbf24 100644
+--- a/codex-rs/tui/src/chatwidget/input_flow.rs
++++ b/codex-rs/tui/src/chatwidget/input_flow.rs
+@@ -153,6 +153,15 @@ impl ChatWidget {
+         )
+     }
+ 
++    pub(crate) fn queue_peer_message(&mut self, text: String) {
++        self.queue_user_message_with_options_and_source(
++            text.into(),
++            QueuedInputAction::Literal,
++            Vec::new(),
++            UserMessageSource::Peer,
++        );
++    }
++
+     pub(crate) fn set_queue_submissions_until_session_configured(&mut self, queue: bool) {
+         self.bottom_pane
+             .set_queue_submissions(queue && !self.is_session_configured());
+diff --git a/codex-rs/tui/src/chatwidget/input_submission.rs b/codex-rs/tui/src/chatwidget/input_submission.rs
+index a2da2d3..fc5f7f0 100644
+--- a/codex-rs/tui/src/chatwidget/input_submission.rs
++++ b/codex-rs/tui/src/chatwidget/input_submission.rs
+@@ -314,7 +314,9 @@ impl ChatWidget {
+                 CloudSubmissionIntent::StartOrSteer,
+                 UserMessageSource::Prompt,
+             ),
+-            UserMessageSource::Prompt => (CloudSubmissionIntent::StartIfIdle, source),
++            UserMessageSource::Prompt | UserMessageSource::Peer => {
++                (CloudSubmissionIntent::StartIfIdle, source)
++            }
+             UserMessageSource::QuestionAnswer => (
+                 CloudSubmissionIntent::QuestionAnswer {
+                     during_turn: !render_in_history,
+diff --git a/codex-rs/tui/src/chatwidget/tests/side.rs b/codex-rs/tui/src/chatwidget/tests/side.rs
+index 9a62a6a..aa7dc4f 100644
+--- a/codex-rs/tui/src/chatwidget/tests/side.rs
++++ b/codex-rs/tui/src/chatwidget/tests/side.rs
+@@ -3,6 +3,43 @@ use pretty_assertions::assert_eq;
+ use ratatui::Terminal;
+ use ratatui::backend::TestBackend;
+ 
++#[tokio::test]
++async fn amq_peer_input_is_literal_and_preserves_the_composer() {
++    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(None).await;
++    chat.thread_id = Some(ThreadId::new());
++    chat.bottom_pane
++        .set_composer_text("unfinished draft".into(), Vec::new(), Vec::new());
++    chat.queue_peer_message("!echo peer data".into());
++    assert_eq!(chat.bottom_pane.composer_text(), "unfinished draft");
++    match next_submit_op(&mut op_rx) {
++        Op::UserTurn { items, .. } => assert_eq!(
++            items,
++            vec![UserInput::Text {
++                text: "!echo peer data".to_string(),
++                text_elements: Vec::new(),
++            }]
++        ),
++        other => panic!("expected a literal user turn, got {other:?}"),
++    }
++}
++
++#[tokio::test]
++async fn amq_peer_input_waits_in_the_native_queue_while_busy() {
++    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(None).await;
++    chat.thread_id = Some(ThreadId::new());
++    chat.on_task_started();
++    chat.queue_peer_message("read peer message 1".into());
++    assert_eq!(
++        chat.queued_user_message_texts(),
++        vec!["read peer message 1".to_string()]
++    );
++    assert!(op_rx.try_recv().is_err());
++    assert_eq!(
++        chat.input_queue.queued_user_messages[0].source,
++        UserMessageSource::Peer
++    );
++}
++
+ #[tokio::test]
+ async fn suppressed_interrupted_turn_notice_skips_history_warning() {
+     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+diff --git a/codex-rs/tui/src/chatwidget/user_messages.rs b/codex-rs/tui/src/chatwidget/user_messages.rs
+index 9963b63..7181b2c 100644
+--- a/codex-rs/tui/src/chatwidget/user_messages.rs
++++ b/codex-rs/tui/src/chatwidget/user_messages.rs
+@@ -64,6 +64,7 @@ pub(super) enum ShellEscapePolicy {
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+ pub(super) enum UserMessageSource {
+     Prompt,
++    Peer,
+     DirectEnter,
+     QuestionAnswer,
+     SafetyRecourse,
+diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
+index 48edcda..2ad2e58 100644
+--- a/codex-rs/tui/src/lib.rs
++++ b/codex-rs/tui/src/lib.rs
+@@ -107,6 +107,7 @@ pub(crate) use worktree_startup::ManagedTuiWorktree;
+ 
+ mod activation_key_guard;
+ mod additional_dirs;
++mod amq;
+ mod analytics;
+ mod app;
+ mod app_backtrack;

@@ -1,0 +1,14 @@
+node_modules/
+.agent-mail/
+.state.md
+
+# Local credentials, runtime state, and machine-specific reports
+.env
+.env.*
+!.env.example
+tokens.json
+install.json
+*.log
+.DS_Store
+integrations/local-installation.md
+integrations/live-test-results.md

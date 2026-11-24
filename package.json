@@ -1,0 +1,48 @@
+{
+  "name": "amq-mcp",
+  "version": "0.1.0",
+  "description": "Stateless AMQ messaging through MCP, with native incoming delivery for coding agents.",
+  "type": "module",
+  "bin": {
+    "amq-mcp": "./server.js",
+    "amq-channel": "./channel.js",
+    "amq-inbox-feed": "./feed.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "files": [
+    "server.js",
+    "amq.js",
+    "http.js",
+    "channel.js",
+    "feed.js",
+    "inbox-client.js",
+    "local.js",
+    "bin/",
+    "README.md",
+    "integrations/README.md",
+    "integrations/*.patch",
+    "integrations/verification.md",
+    "integrations/licenses/",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
+    "@modelcontextprotocol/client": "2.4.0",
+    "@modelcontextprotocol/node": "2.1.2",
+    "zod": "^4.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SiavZ/amq-mcp.git"
+  },
+  "homepage": "https://github.com/SiavZ/amq-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/SiavZ/amq-mcp/issues"
+  }
+}
